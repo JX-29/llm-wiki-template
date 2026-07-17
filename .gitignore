@@ -1,0 +1,18 @@
+# Obsidian per-user state — the wiki works as a vault without committing this.
+# Only the curated app.json (attachment path) is tracked.
+.obsidian/*
+!.obsidian/app.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+
+# Python (linter)
+__pycache__/
+*.pyc
+.venv/
+
+# qmd local search index (optional search layer — see docs/search-qmd.md)
+.qmd/
