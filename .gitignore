@@ -3,6 +3,9 @@
 .obsidian/*
 !.obsidian/app.json
 
+# Claude Code session worktrees (git already ignores registered ones; this covers leftovers)
+.claude/worktrees/
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

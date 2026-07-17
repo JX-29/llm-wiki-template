@@ -22,7 +22,7 @@
 
 1. **Use this template** → **Create a new repository** → выберите **Private**.
 2. Склонируйте и откройте папку в [Claude Code](https://claude.com/claude-code).
-3. Запустите **`/wiki-doctor`** — он проверит окружение и поможет поставить рекомендованные скиллы.
+3. Просто поздоровайтесь — агент сам проведёт онбординг в чате. (Или `/wiki-doctor` — проверить окружение.)
 4. Откройте **`SCHEMA.md`** и заполните **Domain** и **Tag Taxonomy** под свою тему.
 5. Первый источник: **`/wiki-ingest <url>`**. Затем прочитайте `concepts/how-this-wiki-works.md` и удалите его.
 
@@ -55,6 +55,19 @@ scripts/       # lint_wiki.py (гоняется и в CI) + vendor-skill.sh
 | `/wiki-update` | Подтянуть обновления движка из шаблона, не трогая ваши заметки |
 
 Можно и просто сказать *«добавь это в вики»* — скилл `llm-wiki` активируется сам.
+
+## Скиллы — уже в комплекте, ставить нечего
+
+Скиллы агента лежат **внутри репозитория** (`.claude/skills/`), поэтому свежая копия работает сразу:
+
+`llm-wiki` (ядро) · `youtube-content` (YouTube → транскрипт) · `notebooklm-source-corpus`
+(локальные видео/аудио/PDF → Markdown-корпус) · `research` (расследование по первоисточникам) ·
+`grilling` (стресс-тест плана) · `domain-modeling` (глоссарий/убиквитарный язык) · `writing-shape` /
+`writing-beats` / `writing-fragments` (проза).
+
+Все MIT — см. [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md). Внешняя зависимость только у
+`notebooklm-source-corpus` (NotebookLM CLI). Опциональные добавки:
+[RECOMMENDED-SKILLS.md](RECOMMENDED-SKILLS.md).
 
 ## Принципы
 

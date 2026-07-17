@@ -31,8 +31,21 @@ an encyclopedia — read what the task needs, don't load everything.
 - Default: `rg` (ripgrep) across the repo — instant, always fresh.
 - Semantic ("where/how is X" without knowing the term): optional `qmd` daemon — see `docs/search-qmd.md`. Not a dependency; don't spin it up for a single lookup.
 
-## Skills
+## Skills — vendored, nothing to install
 
-- **`llm-wiki`** (`.claude/skills/llm-wiki/`) — the core skill: ingest, query, lint. Activates on "add to wiki", "ingest", or a `/wiki-*` command.
-- **`youtube-content`** (`.claude/skills/youtube-content/`) — pull a YouTube transcript as a source for the wiki.
-- **Recommended set** (Superpowers, Matt Pocock, find-skills, …) — run `/wiki-doctor`; it checks your setup and helps install them.
+All of these ship **inside this repo** at `.claude/skills/`. A fresh copy from the template already
+has them. Reach for them by name.
+
+| Skill | Use | Source |
+|---|---|---|
+| `llm-wiki` | The core: ingest, query, lint, maintain. Activates on "add to wiki" or a `/wiki-*` command | Hermes Agent (MIT) |
+| `youtube-content` | YouTube transcript → a source in `raw/` | Hermes Agent (MIT) |
+| `notebooklm-source-corpus` | Local video/audio/PDF folder → Markdown corpus (needs the NotebookLM CLI) | Anton Tretakov (MIT) |
+| `research` | Investigate a question against primary sources | Matt Pocock (MIT) |
+| `grilling` | Stress-test a plan or design before committing | Matt Pocock (MIT) |
+| `domain-modeling` | Build the wiki's ubiquitous language / glossary | Matt Pocock (MIT) |
+| `writing-shape`, `writing-beats`, `writing-fragments` | Write and edit the wiki's prose | Matt Pocock (MIT) |
+
+Only `notebooklm-source-corpus` needs anything external (the NotebookLM CLI). The rest work out of
+the box. `/wiki-doctor` verifies them; `/wiki-update` refreshes them from the template upstream.
+Further optional skills are listed in `RECOMMENDED-SKILLS.md`.

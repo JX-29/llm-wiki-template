@@ -21,7 +21,7 @@ It's just Markdown files in a git repo. Open them in Obsidian, VS Code, or any e
 
 1. Click **Use this template** → **Create a new repository** → choose **Private**.
 2. Clone it and open the folder in [Claude Code](https://claude.com/claude-code).
-3. Run **`/wiki-doctor`** — it checks your setup and helps you install the recommended skills.
+3. Say hello — the agent onboards you in the chat. (Or run **`/wiki-doctor`** to check the setup.)
 4. Open **`SCHEMA.md`** and fill in your **Domain** and **Tag Taxonomy**.
 5. Ingest your first source: **`/wiki-ingest <url>`**. Then read `concepts/how-this-wiki-works.md` and delete it.
 
@@ -54,6 +54,19 @@ scripts/       # lint_wiki.py (also runs in CI) + vendor-skill.sh
 | `/wiki-update` | Pull engine updates from this template without touching your notes |
 
 You can also just say *"add this to my wiki"* — the `llm-wiki` skill activates on its own.
+
+## Skills — included, nothing to install
+
+The agent skills ship **inside the repo** (`.claude/skills/`), so a fresh copy works immediately:
+
+`llm-wiki` (the core) · `youtube-content` (YouTube → transcript) · `notebooklm-source-corpus`
+(local media → Markdown corpus) · `research` (primary-source investigation) · `grilling`
+(stress-test a plan) · `domain-modeling` (build your glossary) · `writing-shape` / `writing-beats` /
+`writing-fragments` (prose).
+
+All MIT — see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md). Only `notebooklm-source-corpus`
+needs anything external (the NotebookLM CLI). Optional extras:
+[RECOMMENDED-SKILLS.md](RECOMMENDED-SKILLS.md).
 
 ## Principles
 
