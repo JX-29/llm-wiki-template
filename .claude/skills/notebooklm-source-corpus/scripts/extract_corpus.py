@@ -26,8 +26,10 @@ DEFAULT_EXTENSIONS = {
     ".mp4", ".jpg", ".jpeg", ".png", ".gif", ".webp",
 }
 MEDIA_EXTENSIONS = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".mp4"}
+VIDEO_EXTENSIONS = {".mp4"}
 DEFAULT_EXCLUDED_DIRS = {
-    ".git", "node_modules", "_SOURCE_TEXT_MD", "_TRANSLATIONS_RU", "_CLEAN_TEXT_MD"
+    ".git", "node_modules", "_SOURCE_TEXT_MD", "_TRANSLATIONS_RU", "_CLEAN_TEXT_MD",
+    "_HTML_TEXT_MD",
 }
 OUTPUT_MARKER = "## Исходный текст\n\n"
 
@@ -50,6 +52,72 @@ def find_notebooklm() -> str:
     raise RuntimeError(
         "notebooklm CLI not found. Install notebooklm-py and authenticate with `notebooklm login`."
     )
+
+
+def tool_runs(binary: str, probe: list[str]) -> bool:
+    """which() is not enough — a Homebrew ffmpeg resolves fine yet dies on a missing dylib."""
+    try:
+        proc = subprocess.run([binary, *probe], capture_output=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def find_audio_tool(log_path: Path) -> tuple[str, str] | None:
+    """Locate a tool that can drop the video track. ffmpeg remuxes losslessly; avconvert re-encodes."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        if tool_runs(ffmpeg, ["-version"]):
+            return ffmpeg, "ffmpeg"
+        log(f"ffmpeg at {ffmpeg} will not run (broken install?); looking for avconvert", log_path)
+    avconvert = shutil.which("avconvert")
+    if avconvert:
+        return avconvert, "avconvert"
+    return None
+
+
+def extract_audio(source: Path, dest_dir: Path, tool: tuple[str, str], log_path: Path) -> Path | None:
+    """Strip the video track before upload.
+
+    NotebookLM transcribes speech from video and does not read what is on screen — measured at
+    +0.2% text across 13 screencast lessons, so the picture is dead weight that only slows the
+    upload (11-23x smaller without it).
+    """
+    binary, kind = tool
+    out = dest_dir / (source.stem + ".m4a")
+    if kind == "ffmpeg":
+        attempts = [
+            [binary, "-v", "error", "-y", "-i", str(source), "-vn", "-acodec", "copy", str(out)],
+            [binary, "-v", "error", "-y", "-i", str(source), "-vn", "-c:a", "aac", str(out)],
+        ]
+    else:
+        attempts = [[binary, "--preset", "PresetAppleM4A", "--source", str(source), "--output", str(out)]]
+    for cmd in attempts:
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=1800, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f"Audio extraction error on {source.name}: {exc}", log_path)
+            continue
+        if out.exists() and out.stat().st_size > 0:
+            return out
+    return None
+
+
+def clean_error_sources(binary: str, notebook_id: str, log_path: Path) -> None:
+    """Drop sources NotebookLM choked on before reuse can inherit them.
+
+    Reuse matches by title, not by content: one bad upload is otherwise resurrected on every run,
+    and each retry burns wait_source's full budget (3 x 900s) on a source that can never go ready.
+    """
+    try:
+        payload = run_cli(binary, ["source", "clean", "-n", notebook_id, "-y", "--json"], timeout=180)
+    except RuntimeError as exc:
+        log(f"Source clean skipped: {exc}", log_path)
+        return
+    removed = payload.get("deleted_count") or 0
+    if removed:
+        titles = ", ".join(str(c.get("title", "?")) for c in (payload.get("candidates") or [])[:5])
+        log(f"Cleaned {removed} broken source(s) before extraction: {titles}", log_path)
 
 
 def run_cli(binary: str, args: list[str], timeout: int = 300, attempts: int = 1) -> dict[str, Any]:
@@ -245,31 +313,84 @@ def ensure_source(
     notebook_id: str,
     known_sources: list[dict[str, Any]],
     log_path: Path,
-) -> tuple[str, bool]:
+    audio_tool: tuple[str, str] | None = None,
+) -> tuple[str, bool, bool]:
     wanted = source_title(root, source)
     matches = [item for item in known_sources if item.get("title") == wanted]
     if not matches:
         basename_matches = [item for item in known_sources if item.get("title") == source.name]
         matches = basename_matches if len(basename_matches) == 1 else []
     if matches:
-        return str(matches[0]["id"]), False
+        return str(matches[0]["id"]), False, False
 
-    log(f"Uploading {source.relative_to(root)} ({source.stat().st_size} bytes)", log_path)
-    added = run_cli(
-        binary,
-        [
-            "source", "add", str(source), "--title", wanted,
-            "--notebook", notebook_id, "--request-timeout", "900", "--json",
-        ],
-        timeout=960,
-        attempts=2,
-    )
+    upload = source
+    audio_only = False
+    temp_dir: str | None = None
+    if audio_tool and source.suffix.casefold() in VIDEO_EXTENSIONS:
+        temp_dir = tempfile.mkdtemp(prefix="nlm-audio-")
+        # .resolve() matters: mkdtemp hands back /var/... and /var is a symlink to /private/var,
+        # which the notebooklm CLI refuses to upload through.
+        converted = extract_audio(source, Path(temp_dir).resolve(), audio_tool, log_path)
+        if converted:
+            upload, audio_only = converted, True
+            before, after = source.stat().st_size, converted.stat().st_size
+            log(f"Stripped video track from {source.name}: {before / 1048576:.1f} MB -> "
+                f"{after / 1048576:.1f} MB ({before / max(after, 1):.1f}x smaller, {audio_tool[1]})",
+                log_path)
+        else:
+            log(f"Could not strip video track from {source.name}; uploading it whole", log_path)
+
+    # The title stays the *video's* relative path even when audio bytes go up, so reuse keeps
+    # matching across runs and existing corpora never re-upload.
+    try:
+        log(f"Uploading {source.relative_to(root)} ({upload.stat().st_size} bytes)", log_path)
+        added = run_cli(
+            binary,
+            [
+                "source", "add", str(upload), "--title", wanted,
+                "--notebook", notebook_id, "--request-timeout", "900", "--json",
+            ],
+            timeout=960,
+            attempts=2,
+        )
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     payload = added.get("source", added)
     source_id = payload.get("id")
     if not source_id:
         raise RuntimeError(f"Source upload returned no ID: {added}")
     known_sources.append(payload)
-    return str(source_id), True
+    return str(source_id), True, audio_only
+
+
+def rename_source(
+    binary: str,
+    source_id: str,
+    wanted: str,
+    notebook_id: str,
+    known_sources: list[dict[str, Any]],
+    log_path: Path,
+) -> None:
+    """Title an uploaded source by its relative path — only once it is ready.
+
+    NotebookLM ignores --title for uploaded media and names the source after the file it received,
+    re-applying that name when processing finishes (so renaming right after the upload is silently
+    undone). Without this, an audio-first upload lands as "X.m4a", never matches the "X.mp4" on
+    disk, and re-uploads on every run.
+    """
+    try:
+        run_cli(
+            binary,
+            ["source", "rename", source_id, wanted, "-n", notebook_id, "--json"],
+            timeout=120,
+        )
+    except RuntimeError as exc:
+        log(f"Could not rename source to {wanted}: {exc}", log_path)
+        return
+    for entry in known_sources:
+        if entry.get("id") == source_id:
+            entry["title"] = wanted
 
 
 def wait_source(binary: str, source_id: str, notebook_id: str, log_path: Path) -> None:
@@ -322,16 +443,21 @@ def write_output(
     notebook_id: str,
     source_id: str,
     content: str,
+    audio_only: bool = False,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     relative = source.relative_to(root)
+    upload_line = (
+        "\n- **Загружено:** только аудиодорожка (видеоряд не загружался — NotebookLM снимает "
+        "с видео лишь речь)" if audio_only else ""
+    )
     document = f"""# {source.stem}
 
 - **Исходный материал:** `{relative}`
 - **Тип:** {source_kind(source)}
 - **Язык:** язык оригинала
 - **NotebookLM:** https://notebooklm.google.com/notebook/{notebook_id}
-- **Источник NotebookLM:** `{source_id}`
+- **Источник NotebookLM:** `{source_id}`{upload_line}
 - **Обработка:** полный индексированный текст без перевода и без пересказа
 
 ## Исходный текст
@@ -460,6 +586,7 @@ def process_item(
     state_path: Path,
     log_path: Path,
     force: bool,
+    audio_tool: tuple[str, str] | None = None,
 ) -> None:
     relative = str(source.relative_to(root))
     output_path = output_path_for(root, output_root, source)
@@ -483,14 +610,18 @@ def process_item(
     atomic_json(state_path, state)
     write_readme(output_root, state)
 
-    source_id, uploaded = ensure_source(
-        binary, root, source, notebook_id, known_sources, log_path
+    source_id, uploaded, audio_only = ensure_source(
+        binary, root, source, notebook_id, known_sources, log_path, audio_tool
     )
-    item.update({"source_id": source_id, "uploaded": uploaded})
+    item.update({"source_id": source_id, "uploaded": uploaded, "audio_only": audio_only})
     atomic_json(state_path, state)
     wait_source(binary, source_id, notebook_id, log_path)
+    if uploaded:
+        rename_source(
+            binary, source_id, source_title(root, source), notebook_id, known_sources, log_path
+        )
     content = get_fulltext(binary, source_id, notebook_id)
-    write_output(output_path, root, source, notebook_id, source_id, content)
+    write_output(output_path, root, source, notebook_id, source_id, content, audio_only)
     item.update({"status": "complete", "completed_at": utc_now(), "chars": len(content)})
     state["updated_at"] = utc_now()
     atomic_json(state_path, state)
@@ -512,6 +643,16 @@ def main() -> int:
     parser.add_argument("--max-items", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument(
+        "--no-audio-first",
+        action="store_true",
+        help="Upload video whole instead of stripping the video track first (needs ffmpeg/avconvert)",
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Keep sources NotebookLM errored on instead of clearing them before extraction",
+    )
     args = parser.parse_args()
 
     root = args.root.expanduser().resolve()
@@ -562,6 +703,15 @@ def main() -> int:
     state["updated_at"] = utc_now()
     atomic_json(state_path, state)
     write_readme(output_root, state)
+
+    audio_tool = None if args.no_audio_first else find_audio_tool(log_path)
+    if audio_tool:
+        log(f"Audio-first upload on ({audio_tool[1]}): video tracks are stripped before upload", log_path)
+    elif not args.no_audio_first:
+        log("No working ffmpeg/avconvert — uploading video whole", log_path)
+
+    if not args.no_clean:
+        clean_error_sources(binary, notebook_id, log_path)
     known_sources = run_cli(
         binary, ["source", "list", "--notebook", notebook_id, "--json"], timeout=120
     ).get("sources", [])
@@ -576,7 +726,7 @@ def main() -> int:
                 ensure_auth(binary, log_path)
             process_item(
                 binary, root, output_root, source, notebook_id, known_sources,
-                state, state_path, log_path, args.force,
+                state, state_path, log_path, args.force, audio_tool,
             )
         except Exception as exc:
             failures += 1

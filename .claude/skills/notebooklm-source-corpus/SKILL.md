@@ -73,6 +73,11 @@ If authentication is missing or stale, run `notebooklm login` interactively and 
 
 The script locates `notebooklm` through `PATH`, then falls back to `~/.local/bin/notebooklm`.
 
+For video sources it also wants **ffmpeg** (preferred — remuxes the audio out losslessly) or, on
+macOS, the built-in **avconvert** (re-encodes). Neither is required: without one, video uploads
+whole and only the wall clock suffers. Presence is probed by running the tool, not by `which` — a
+Homebrew ffmpeg resolves on `PATH` yet dies on a missing dylib after an x265 bump.
+
 ## Workflow
 
 ### 1. Inventory the source folder
@@ -83,6 +88,8 @@ Count supported files and identify generated folders that must be excluded. The 
 - audio: MP3, M4A, WAV, AAC, OGG, OPUS;
 - video: MP4;
 - images: JPG, JPEG, PNG, GIF, WEBP.
+
+Generated corpus folders are excluded automatically, including `_SOURCE_TEXT_MD`, `_TRANSLATIONS_RU`, `_CLEAN_TEXT_MD`, and `_HTML_TEXT_MD`. This prevents locally extracted HTML Markdown from being re-ingested as new course sources on a resume run.
 
 Completion criterion: the intended source count is known before upload and generated output folders are excluded.
 
@@ -105,16 +112,32 @@ python3 .claude/skills/notebooklm-source-corpus/scripts/extract_corpus.py \
 
 For a long folder, run it through the host's tracked background-process facility rather than `nohup`, shell `&`, or an untracked daemon. In Hermes use `terminal(background=true, notify_on_complete=true)`.
 
+Before the loop it clears sources NotebookLM errored on (`source clean`), so a bad upload from an
+earlier run cannot be inherited by title. `--no-clean` keeps them.
+
 The script performs this loop for every source:
 
 1. reuse an existing NotebookLM source by relative-path title or unique basename;
-2. otherwise upload the local file;
+2. otherwise upload the local file — **for video, only its audio track** (see below);
 3. wait for `ready` with bounded retries;
-4. call `source fulltext` rather than chat, translation, or summary;
-5. write `SOURCE.md` and update state atomically;
-6. record a failure and continue when one item fails.
+4. rename the uploaded source to its relative path, so the next run recognises it;
+5. call `source fulltext` rather than chat, translation, or summary;
+6. write `SOURCE.md` and update state atomically;
+7. record a failure and continue when one item fails.
 
 Completion criterion: the process exits and the persisted state—not transient stdout—shows every item complete or explicitly failed.
+
+#### Audio-first upload (default for video)
+
+Video is uploaded without its picture: the track is stripped to a temporary `.m4a` that is deleted
+after upload. **This costs nothing in text** — NotebookLM transcribes speech and does not read what
+is on screen. Measured across 13 screencast lessons of the same course, video vs audio came to
+48,535 vs 48,610 characters: **+0.2%**, each lesson within ±1%. What it buys is upload weight:
+**5-23x smaller** (a 4 GB course became 352 MB).
+
+Disable with `--no-audio-first` when the picture is the point — a source whose text lives in slides
+rather than speech will not survive this, and the measurement above says nothing about such
+material.
 
 ### 4. Resume rather than restart
 
@@ -187,6 +210,7 @@ python3 .claude/skills/notebooklm-source-corpus/scripts/extract_corpus.py \
 
 - `source fulltext` is NotebookLM's complete indexed source, not a chat answer. This avoids silent summarization caused by asking the model to “give the transcript.”
 - Video text is a readable normalized transcript, not forensic verbatim audio. Punctuation, filler words, and product names can be wrong.
+- Video yields speech and nothing else — on-screen text, slides, and demos are not read. Measured at +0.2% over audio-only across 13 screencast lessons, which is why the video track is dropped before upload.
 - Timestamps are intentionally absent. They add no value when downstream agents search and analyze the corpus semantically.
 - PDFs can contain `lh3.googleusercontent.com/notebooklm` asset URLs and UUIDs. Flag these as cleanup candidates; do not classify them as truncation.
 - Very short output is a warning, not automatically a failure. Compare it with source duration or page count before retrying.
@@ -201,6 +225,15 @@ python3 .claude/skills/notebooklm-source-corpus/scripts/extract_corpus.py \
 6. **Treating media size as transcript completeness.** Compare text with duration; bitrate and resolution dominate file size.
 7. **Overwriting raw text during cleanup.** Preserve `SOURCE.md`; write derived material separately.
 8. **Leaking authentication.** Logs may contain IDs and public notebook URLs, never cookies or browser storage.
+9. **Assuming reuse compares content.** It matches on *title* only. A source uploaded from a
+   truncated or half-downloaded file is reused forever, and its transcript is served as complete —
+   re-download the folder and the state still says done. Verify integrity before ingesting; a
+   corpus is only as honest as the file it came from.
+10. **Trusting `--title` on an uploaded file.** NotebookLM ignores it for media and names the source
+    after the file it received — re-applying that name when processing finishes, so a rename issued
+    right after the upload is silently undone. Rename only once the source is `ready`.
+11. **Handing the CLI a path through a symlink.** `tempfile.mkdtemp()` returns `/var/...`, and `/var`
+    is a symlink to `/private/var` on macOS; the upload is refused. Resolve the path first.
 
 ## Verification Checklist
 
@@ -212,5 +245,7 @@ python3 .claude/skills/notebooklm-source-corpus/scripts/extract_corpus.py \
 - [ ] No empty bodies or body-length mismatches
 - [ ] No literal truncation markers or Unicode replacement characters
 - [ ] PDF asset noise reported as warning, not silently deleted
+- [ ] Source files verified intact before ingesting — reuse matches titles, never content
+- [ ] Uploaded sources are titled by relative path, not by the file that was sent
 - [ ] Translation, summaries, timestamps, and notes are absent from the source corpus
 - [ ] Final report names the output root, manifest, counts, failures, and warnings

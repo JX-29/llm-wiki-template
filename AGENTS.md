@@ -14,6 +14,7 @@ an encyclopedia — read what the task needs, don't load everything.
 | Available commands | `.claude/commands/wiki-*.md` |
 | Recommended skills to install | `RECOMMENDED-SKILLS.md` |
 | Optional local search (rg + qmd) | `docs/search-qmd.md` |
+| Ingesting a folder of media (video/audio/PDF/HTML) | `docs/ingest-media.md` |
 
 ## Rules (mandatory)
 

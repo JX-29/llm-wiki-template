@@ -46,6 +46,15 @@ You can also just say *"add this to my wiki"* — the `llm-wiki` skill activates
 3. Optional: `/wiki-doctor` checks the setup. The skills already ship in `.claude/skills/` — there's nothing to install.
 4. Read `PRINCIPLES.md` once — the seven rules that keep the wiki trustworthy. _(It's a repo doc, not a wiki page, so it isn't linked with `[[wikilinks]]`.)_
 
+## Long-running projects: keep state in the wiki, not in chat
+
+If this wiki backs an ongoing project — one that spans many sessions, agents, or machines — put the
+project's live state in a **page** (a `queries/` entry works well): what's decided, where the work
+stands, what's next, and pointers to the source-of-truth files. It survives session compaction, a
+folder rename, and a handoff between agents (Claude, Codex, Hermes all read the same page). Session
+memory does none of that — it's keyed to one folder path and one agent. The wiki is the durable
+place; use it.
+
 ## The rules that matter most
 
 - Every claim traces to a source. A fact without a source is a hypothesis.

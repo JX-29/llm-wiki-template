@@ -20,7 +20,10 @@ It's just Markdown files in a git repo. Open them in Obsidian, VS Code, or any e
 ## Quick start
 
 1. Click **Use this template** → **Create a new repository** → choose **Private**.
-2. Clone it and open the folder in [Claude Code](https://claude.com/claude-code).
+2. Clone it and open the folder in [Claude Code](https://claude.com/claude-code). **Name the folder
+   once, up front** — the agent's session memory and state are keyed to the folder path, so renaming
+   it later orphans them. And always open sessions in *your* wiki folder, never in a copy of the
+   template.
 3. Say hello — the agent onboards you in the chat. (Or run **`/wiki-doctor`** to check the setup.)
 4. Open **`SCHEMA.md`** and fill in your **Domain** and **Tag Taxonomy**.
 5. Ingest your first source: **`/wiki-ingest <url>`**. Then read `concepts/how-this-wiki-works.md` and delete it.
