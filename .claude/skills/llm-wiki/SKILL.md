@@ -43,6 +43,11 @@ will silently maintain two different wikis. The safe default is to keep `~/wiki`
 The wiki is just a directory of markdown files — open it in Obsidian, VS Code, or
 any editor. No database, no special tooling required.
 
+**Multi-vault routing:** if `~/.agents/wikis.yaml` exists, it is the registry of the
+user's wikis (name → path → domain). Route knowledge to the vault whose domain matches
+the material; honor per-vault `capture: manual-only` flags. When this skill is vendored
+inside a wiki repo (as in this template), that repo's root is the wiki root.
+
 ## Architecture: Three Layers
 
 ```
@@ -66,11 +71,46 @@ wiki/
 cross-referenced by the agent.
 **Layer 3 — The Schema:** `SCHEMA.md` defines structure, conventions, and tag taxonomy.
 
+### Layout dialects & resolution
+
+The three layers are **logical**; physical folder names vary per wiki. The tree above is
+the template-flat dialect. Known dialects:
+
+| Logical layer | template-flat (default) | hermes-numbered (Hermes vaults) |
+|---|---|---|
+| Sources (immutable) | `raw/` | `02 Sources/` (plus `01 Inbox/`) |
+| Compiled pages | `entities/ concepts/ comparisons/ queries/` | `03 Concepts/ 04 Entities/ 05 Comparisons/ 06 Queries/ 08 Workflows/` |
+| Index | `index.md` | `00 Meta/Index.md` |
+| Log | `log.md` | `00 Meta/Log.md` |
+
+**Resolve the layout during orientation, before any read or write**, in priority order:
+
+1. **Declared** — a `layout:` block in SCHEMA.md frontmatter (authoritative; this is how
+   custom dialects are supported):
+
+   ```yaml
+   layout:
+     sources:  ["02 Sources", "01 Inbox"]   # unchecked but linkable
+     compiled: ["03 Concepts", "04 Entities", "05 Comparisons", "06 Queries", "08 Workflows"]
+     index: "00 Meta/Index.md"
+     log:   "00 Meta/Log.md"
+   ```
+
+2. **Detected** — `00 Meta/Index.md` exists → hermes-numbered; `index.md` at the wiki
+   root → template-flat.
+3. **Default** — template-flat (what this skill creates for new wikis).
+
+Everywhere this skill says `raw/`, `index.md`, `log.md`, or names a compiled directory,
+substitute the resolved paths. Never mix dialects inside one wiki; if resolution is
+ambiguous, ask the user instead of guessing. `scripts/lint_wiki.py` resolves layouts the
+same way — `--root` points it at any vault.
+
 ## Resuming an Existing Wiki (CRITICAL — do this every session)
 
 When the user has an existing wiki, **always orient yourself before doing anything**:
 
-① **Read `$WIKI/SCHEMA.md`** — understand the domain, conventions, and tag taxonomy.
+① **Read `$WIKI/SCHEMA.md`** — understand the domain, conventions, and tag taxonomy,
+   and **resolve the layout** (see Layout dialects & resolution above).
 ② **Read `$WIKI/index.md`** — learn what pages exist and their summaries.
 ③ **Scan recent `$WIKI/log.md`** — read the last 20-30 entries (`tail -n 30 "$WIKI/log.md"`).
 
@@ -244,4 +284,6 @@ this one, point `OBSIDIAN_VAULT_PATH` at the same directory as the wiki.
 ---
 
 *Ported from Hermes Agent `skills/research/llm-wiki` v2.1.0 (MIT). Wiki structure must stay
-compatible: a wiki maintained by Hermes is valid for this skill and vice versa.*
+compatible: a wiki maintained by Hermes is valid for this skill and vice versa. Extended
+2026-07-19 with layout resolution — additive: a Hermes-numbered vault is served as-is,
+with no changes required on the Hermes side.*
