@@ -15,6 +15,7 @@ an encyclopedia — read what the task needs, don't load everything.
 | Recommended skills to install | `RECOMMENDED-SKILLS.md` |
 | Optional local search (rg + qmd) | `docs/search-qmd.md` |
 | Ingesting a folder of media (video/audio/PDF/HTML) | `docs/ingest-media.md` |
+| Standard research pipeline (triage → sources → capture) | `docs/research-protocol.md` |
 
 ## Rules (mandatory)
 

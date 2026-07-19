@@ -15,6 +15,26 @@ _e.g._ "AI/ML research", "personal health", "startup intelligence", "home renova
 - `entities/ concepts/ comparisons/ queries/` — **compiled knowledge**: agent-owned, cross-referenced Markdown pages.
 - `SCHEMA.md` (this file), `index.md` (catalog), `log.md` (append-only action log) — the navigational backbone.
 
+### Layout override (optional)
+
+The folder names above are this template's default dialect. A wiki with different folder
+names (e.g. a Hermes-numbered vault: sources in `02 Sources/`, index and log under
+`00 Meta/`) declares its layout in this file's **frontmatter** — the `llm-wiki` skill and
+`scripts/lint_wiki.py` resolve it before acting, and auto-detect the Hermes dialect even
+without a declaration:
+
+```yaml
+---
+layout:
+  sources:  ["02 Sources", "01 Inbox"]   # unchecked but linkable
+  compiled: ["03 Concepts", "04 Entities", "05 Comparisons", "06 Queries", "08 Workflows"]
+  index: "00 Meta/Index.md"
+  log:   "00 Meta/Log.md"
+---
+```
+
+Nothing to declare if you keep the default layout.
+
 ## Conventions
 
 - File names: lowercase, hyphens, no spaces (e.g. `transformer-architecture.md`).

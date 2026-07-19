@@ -22,7 +22,7 @@ Borderline → at most a one-line breadcrumb. If the gate fails → do nothing. 
 
 Invoke the `llm-wiki` skill against this wiki:
 
-1. Save any raw source under `raw/` with frontmatter (`source_url`, `ingested`, `sha256`). Redact secrets first.
+1. Save any raw source under `raw/` (or the wiki's resolved sources dir — see the llm-wiki skill's layout resolution) with frontmatter (`source_url`, `ingested`, `sha256`). Redact secrets first.
 2. **Distil** — never dump raw text as a "finding" — into concept / entity / comparison / query pages per `SCHEMA.md`, with ≥2 `[[wikilinks]]` and provenance.
 3. Update `index.md` and `log.md`.
 

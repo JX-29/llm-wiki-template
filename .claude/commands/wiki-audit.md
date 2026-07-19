@@ -7,7 +7,8 @@ Audit this wiki along two layers.
 ## 1. Deterministic — run the linter
 
 ```bash
-python3 scripts/lint_wiki.py
+python3 scripts/lint_wiki.py            # add --root <path> to audit an external vault
+
 ```
 
 It reports broken `[[wikilinks]]`, broken relative links, missing frontmatter, stale pages, orphans, and oversized pages. Fix every `E*` error.
