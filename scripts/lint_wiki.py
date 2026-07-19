@@ -125,9 +125,11 @@ def resolve_layout(root: pathlib.Path) -> Layout:
         lay = fm.get("layout")
         if isinstance(lay, dict) and lay.get("index") and lay.get("log"):
             aslist = lambda v: [v] if isinstance(v, str) else list(v or [])
+            # declared wikis link freely across their whole tree (projects,
+            # archives, daily notes) — narrow the CHECKS, not the link universe
             return Layout("declared (SCHEMA.md)", aslist(lay.get("sources")),
                           aslist(lay.get("compiled")),
-                          str(lay["index"]), str(lay["log"]))
+                          str(lay["index"]), str(lay["log"]), scan_all=True)
     if (root / "00 Meta" / "Index.md").exists():
         return Layout("hermes-numbered (detected)",
                       [d for d in NUMBERED_SOURCES if (root / d).is_dir()],
