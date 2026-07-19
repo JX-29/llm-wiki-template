@@ -28,7 +28,9 @@ One question may chain engines; whatever the chain, it ends at step 3.
 2. **Source-native inventory.** `llms.txt`, sitemap, RSS/Atom, OpenAPI spec, repo
    tags/releases. Publishers often hand you the complete corpus — take it instead of
    crawling.
-3. **Web search** — only for URLs the inventory didn't surface.
+3. **Web search** — only for URLs the inventory didn't surface. For discovery tasks,
+   fan the query: 3–5 variants (synonyms, "X vs", "X alternatives", competitor names,
+   locale/GEO variants). One query's result set is a sample, not the landscape.
 4. **Direct conditional HTTP** for the chosen originals: keep raw bytes + headers,
    record `sha256`; on refresh use `ETag`/`Last-Modified` instead of re-downloading.
 
