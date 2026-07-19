@@ -20,9 +20,14 @@ resolved per wiki, in priority order:
      index.md + log.md at the wiki root).
 
 Only *compiled* pages are fully checked; sources and meta files are link
-targets but skip frontmatter/orphan/size checks. Repo docs (README,
+targets but skip frontmatter/orphan/size checks. Link validation (E1/E2)
+runs only inside the governed set (sources + compiled + meta): archives,
+projects and daily notes expand the valid-target universe and feed inbound
+counts, but their own stale links do not fail the lint. Repo docs (README,
 PRINCIPLES, AGENTS, …) are NOT wiki pages and are not linted in the flat
-dialect.
+dialect. Markdown links may be URL-encoded (`%20`) or angle-bracketed
+(`](<path with spaces.md>)`); asset embeds resolve page-relative,
+root-relative, or by unique basename (Obsidian shortest-path).
 
 Checks:
   E1  broken [[wikilinks]] (target missing as path or filename)
@@ -43,6 +48,7 @@ import pathlib
 import re
 import sys
 import unicodedata
+from urllib.parse import unquote
 
 try:
     import yaml
@@ -63,6 +69,7 @@ WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 ASSET_EXT = re.compile(r"\.(png|jpe?g|gif|webp|svg|pdf|mp4|mov|mp3|wav|m4a|zip|csv|json|html?)$",
                        re.IGNORECASE)
 MDLINK = re.compile(r"\]\((?!https?://|mailto:|#)([^)#\s]+\.md)")
+MDLINK_ANGLE = re.compile(r"\]\(<(?!https?://|mailto:)([^>#]+\.md)>")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 
@@ -107,6 +114,7 @@ class Layout:
     index: str
     log: str
     scan_all: bool = False  # numbered wikis link freely across the whole tree
+    note: str = ""  # resolution caveat surfaced as a W0 warning
 
     @property
     def meta_files(self):
@@ -119,9 +127,11 @@ class Layout:
 
 
 def resolve_layout(root: pathlib.Path) -> Layout:
+    note = ""
     schema = root / "SCHEMA.md"
     if schema.exists():
-        fm = frontmatter(schema.read_text(encoding="utf-8")) or {}
+        txt = schema.read_text(encoding="utf-8")
+        fm = frontmatter(txt) or {}
         lay = fm.get("layout")
         if isinstance(lay, dict) and lay.get("index") and lay.get("log"):
             aslist = lambda v: [v] if isinstance(v, str) else list(v or [])
@@ -130,13 +140,21 @@ def resolve_layout(root: pathlib.Path) -> Layout:
             return Layout("declared (SCHEMA.md)", aslist(lay.get("sources")),
                           aslist(lay.get("compiled")),
                           str(lay["index"]), str(lay["log"]), scan_all=True)
+        # the naive no-yaml fallback cannot parse a nested layout block —
+        # say so instead of silently linting the wrong dialect
+        if yaml is None and txt.startswith("---"):
+            end = txt.find("\n---", 3)
+            if end != -1 and re.search(r"(?m)^layout:", txt[3:end]):
+                note = ("SCHEMA.md declares `layout:` but PyYAML is unavailable — "
+                        "install pyyaml; falling back to layout detection")
     if (root / "00 Meta" / "Index.md").exists():
         return Layout("hermes-numbered (detected)",
                       [d for d in NUMBERED_SOURCES if (root / d).is_dir()],
                       [d for d in NUMBERED_COMPILED if (root / d).is_dir()],
-                      "00 Meta/Index.md", "00 Meta/Log.md", scan_all=True)
+                      "00 Meta/Index.md", "00 Meta/Log.md", scan_all=True,
+                      note=note)
     return Layout("template-flat (default)", FLAT_SOURCES, FLAT_COMPILED,
-                  "index.md", "log.md")
+                  "index.md", "log.md", note=note)
 
 
 def collect_pages(root: pathlib.Path, layout: Layout):
@@ -177,9 +195,31 @@ def main() -> int:
     layout = resolve_layout(root)
     pages = collect_pages(root, layout)
     compiled_dirs = [root / d for d in layout.compiled]
+    governed_dirs = [root / d for d in
+                     dict.fromkeys(list(layout.sources) + list(layout.compiled)
+                                   + layout.meta_dirs)]
+    meta_files_abs = {root / f for f in layout.meta_files}
 
     def is_checked(p: pathlib.Path) -> bool:
         return any(c in p.parents for c in compiled_dirs)
+
+    def is_governed(p: pathlib.Path) -> bool:
+        """E1/E2 fire only here; the rest of the tree is link targets only."""
+        return p in meta_files_abs or any(d in p.parents for d in governed_dirs)
+
+    asset_index = None
+
+    def asset_by_name(name: str):
+        """Obsidian shortest-path embeds ([[pic.png]]) resolve by basename."""
+        nonlocal asset_index
+        if asset_index is None:
+            asset_index = {}
+            for f in root.rglob("*"):
+                if (f.is_file() and ASSET_EXT.search(f.name)
+                        and not any(part.startswith(".")
+                                    for part in f.relative_to(root).parts)):
+                    asset_index.setdefault(norm(f.name), []).append(f)
+        return asset_index.get(norm(name))
 
     by_stem: dict[str, list] = {}
     for p in pages:
@@ -195,6 +235,8 @@ def main() -> int:
     if not any(d.is_dir() for d in compiled_dirs):
         warnings.append("W0 layout: no compiled dirs found for this dialect — "
                         "declare `layout:` in SCHEMA.md frontmatter")
+    if layout.note:
+        warnings.append(f"W0 layout: {layout.note}")
 
     for p in pages:
         text = p.read_text(encoding="utf-8")
@@ -205,9 +247,12 @@ def main() -> int:
             raw_target = m.group(1).strip()
             if ASSET_EXT.search(raw_target):
                 # asset embed ([[img.jpg]], [[doc.pdf]]) — not in the md index;
-                # verify on disk, relative to the page or the wiki root
-                if not ((p.parent / raw_target).exists() or (root / raw_target).exists()):
-                    errors.append(f"E1 {rel}: broken asset wikilink [[{raw_target}]]")
+                # verify on disk: page-relative, root-relative, then basename
+                if not ((p.parent / raw_target).exists()
+                        or (root / raw_target).exists()
+                        or asset_by_name(raw_target.rsplit("/", 1)[-1])):
+                    if is_governed(p):
+                        errors.append(f"E1 {rel}: broken asset wikilink [[{raw_target}]]")
                 continue
             target = norm(raw_target)
             hits = by_stem.get(target) or by_stem.get(target.split("/")[-1])
@@ -215,12 +260,12 @@ def main() -> int:
                 for h in hits:
                     if h != p:
                         inbound[h] = inbound.get(h, 0) + 1
-            else:
+            elif is_governed(p):
                 errors.append(f"E1 {rel}: broken wikilink [[{raw_target}]]")
 
-        for m in MDLINK.finditer(linkable):
-            target = (p.parent / m.group(1)).resolve()
-            if not target.exists():
+        for m in list(MDLINK.finditer(linkable)) + list(MDLINK_ANGLE.finditer(linkable)):
+            target = (p.parent / unquote(m.group(1))).resolve()
+            if not target.exists() and is_governed(p):
                 errors.append(f"E2 {rel}: broken link ]({m.group(1)})")
 
         if not is_checked(p):
